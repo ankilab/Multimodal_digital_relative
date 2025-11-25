@@ -40,10 +40,9 @@ def load_models(results_directory="results"):
     return preprocessor, umap_model, feature_order, normalization_params
 
 
-def preprocess_patient_data_from_dict(patient_data, feature_order, preprocessor):
+def preprocess_patient_data_from_dict(patient_data, feature_order, preprocessor, return_df=False):
     """
-    Preprocess new patient data using the fitted preprocessor.
-    Manually encodes categorical features using the correct mappings from training data.
+    Preprocess new patient data using the fitted preprocessor and saved label encoders.
     
     Parameters
     ----------
@@ -53,83 +52,119 @@ def preprocess_patient_data_from_dict(patient_data, feature_order, preprocessor)
         List of feature names in the correct order
     preprocessor : sklearn ColumnTransformer
         Fitted preprocessing pipeline
+    return_df : bool
+        If True, return tuple (transformed, df_encoded) for debugging/verification
         
     Returns
     -------
-    numpy.ndarray
-        Preprocessed feature vector
+    numpy.ndarray or tuple
+        Preprocessed feature vector, or (vector, dataframe) if return_df=True
     """
-    # Define encoding mappings based on training data (alphabetical order of all training values)
-    # These mappings were determined by analyzing the training CSVs
-    
-    NOMINAL_MAPPINGS = {
-        'smoking_status': {'ex_smoker': 0, 'former': 0, 'never_smoker': 1, 'never': 1, 'smoker': 2, 'unknown': 3},
-        'primary_tumor_site': {'CUP': 0, 'Hypopharynx': 1, 'Larynx': 2, 'Oral_cavity': 3, 'Oropharynx': 4},
-        'histologic_type': {
-            'Adenocarcinoma': 0, 'Adenosquamous_carcinoma': 1, 'Carcinoma_NOS': 2,
-            'SCC_Basaloid': 3, 'SCC_Keratinizing': 4, 'SCC_NOS': 5,
-            'SCC_Non_keratinizing': 6, 'SCC_Papillary': 7, 'SCC_Spindle_cell': 8
-        },
-        'hpv_association_p16': {'negative': 0, 'not_tested': 1, 'positive': 2}
-    }
-    
-    ORDINAL_MAPPINGS = {
-        'grading': {'G1': 0, 'G2': 1, 'G3': 2, 'GX': 3},
-        'resection_status': {'R0': 0, 'R1': 1, 'R2': 2, 'RX': 3},
-        'resection_status_carcinoma_in_situ': {'R0': 0, 'CIS Absent': 0, 'R1': 1, 'RX': 2},
-        'pT_stage': {
-            'T0is': 0, 'pT0': 1, 'pT1': 2, 'pT2': 3, 'pT3': 4, 'pT4': 5, 'pT4a': 6, 'pT4b': 7, 'pTX': 8, 'ypT0': 9
-        },
-        'pN_stage': {
-            'pN0': 0, 'pN0i+': 1, 'pN1': 2, 'pN1mi': 3, 'pN2': 4, 'pN2a': 5,
-            'pN2b': 6, 'pN2c': 7, 'pN3': 8, 'pN3a': 9, 'pN3b': 10, 'pNX': 11
-        }
-    }
-    
-    BINARY_MAPPINGS = {
-        'sex': {'male': 0, 'female': 1},
-        'primarily_metastasis': {'no': 0, 'yes': 1},
-        'perinodal_invasion': {'no': 0, 'yes': 1},
-        'lymphovascular_invasion_L': {0: 0, 1: 1, 'no': 0, 'yes': 1},
-        'vascular_invasion_V': {0: 0, 1: 1, 'no': 0, 'yes': 1},
-        'perineural_invasion_Pn': {0: 0, 1: 1, 'no': 0, 'yes': 1},
-        'carcinoma_in_situ': {0: 0, 1: 1, 'no': 0, 'yes': 1}
-    }
+    # Load saved label encoders
+    try:
+        label_encoders = joblib.load('results/label_encoders.pkl')
+    except FileNotFoundError:
+        raise FileNotFoundError("Label encoders not found. Please run data_exploration/create_label_encoders.py first.")
     
     # Convert dict to DataFrame
     df_encoded = pd.DataFrame([patient_data])
     
-    # Manually encode categorical features
-    for feature, mapping in NOMINAL_MAPPINGS.items():
+    # 1. Clean categorical values (map synonyms to canonical training labels)
+    # This logic handles discrepancies between new data terms and training data terms
+    
+    # smoking_status
+    if 'smoking_status' in df_encoded.columns:
+        df_encoded['smoking_status'] = df_encoded['smoking_status'].replace({
+            'former': 'ex_smoker',
+            'never': 'never_smoker'
+        })
+        
+    # pT_stage
+    if 'pT_stage' in df_encoded.columns:
+        df_encoded['pT_stage'] = df_encoded['pT_stage'].replace({
+            'pTis': 'T0is'
+        })
+        
+    # resection_status_carcinoma_in_situ
+    if 'resection_status_carcinoma_in_situ' in df_encoded.columns:
+        df_encoded['resection_status_carcinoma_in_situ'] = df_encoded['resection_status_carcinoma_in_situ'].replace({
+            'R0': 'CIS Absent'
+        })
+        
+    # Binary features - map to 0/1 integers matching extract_tabular_features.py
+    # Note: extract_tabular_features.py uses specific string replacements
+    binary_mappings = {
+        "alive": 0, "dead": 1,
+        "no": 0, "yes": 1,
+        "Absent": 0, "CIS": 1,
+        "male": 0, "female": 1
+    }
+    
+    binary_features = [
+        'primarily_metastasis', 'perinodal_invasion', 'lymphovascular_invasion_L',
+        'vascular_invasion_V', 'perineural_invasion_Pn', 'carcinoma_in_situ', 'sex'
+    ]
+    
+    for feature in binary_features:
         if feature in df_encoded.columns:
-            df_encoded[feature] = df_encoded[feature].map(mapping)
-    
-    for feature, mapping in ORDINAL_MAPPINGS.items():
+            # Map values using the dictionary, keeping existing values if not found (e.g. if already 0/1)
+            # We iterate to handle mixed types or partial matches safely
+            df_encoded[feature] = df_encoded[feature].map(lambda x: binary_mappings.get(x, x))
+            # Ensure numeric type
+            df_encoded[feature] = pd.to_numeric(df_encoded[feature], errors='coerce')
+
+    # 2. Apply Label Encoding for Nominal and Ordinal features
+    # We iterate over the loaded encoders (which only contain Nominal and Ordinal)
+    for feature, le in label_encoders.items():
         if feature in df_encoded.columns:
-            # Special handling for pT_stage (pTis -> T0is)
-            if feature == 'pT_stage':
-                df_encoded[feature] = df_encoded[feature].replace({'pTis': 'T0is'})
-            df_encoded[feature] = df_encoded[feature].map(mapping)
-    
-    for feature, mapping in BINARY_MAPPINGS.items():
-        if feature in df_encoded.columns:
-            df_encoded[feature] = df_encoded[feature].map(mapping)
-    
-    # Discrete features (already numeric)
-    # age_at_initial_diagnosis, number_of_positive_lymph_nodes, infiltration_depth_in_mm
-    # These don't need encoding
-    
-    # Ensure all features from feature_order are present
+            try:
+                # Handle unknown labels
+                # If the value is not in classes, we might have an issue.
+                # For pT_stage, we already cleaned pTis -> T0is.
+                
+                # Helper to transform safely
+                def transform_safe(val):
+                    if val in le.classes_:
+                        return le.transform([val])[0]
+                    else:
+                        # Fallback: if 'unknown' or similar exists, use it.
+                        # Or if there's a generic class.
+                        # For now, print warning and try to map to first class or NaN?
+                        # But we need an integer.
+                        print(f"Warning: Unknown label '{val}' in {feature}. Known classes: {le.classes_}")
+                        # Try to find a 'unknown' class
+                        for cls in le.classes_:
+                            if 'unknown' in str(cls).lower():
+                                return le.transform([cls])[0]
+                        # Extreme fallback: 0
+                        return 0
+                
+                df_encoded[feature] = df_encoded[feature].apply(transform_safe)
+                
+            except Exception as e:
+                print(f"Error encoding {feature}: {e}")
+                # Leave as is? It will likely fail in preprocessor if it expects int.
+                pass
+    print("df_encoded")
+    print(df_encoded)
+    # Ensure all fe"atures from feature_order are present
     for feature in feature_order:
         if feature not in df_encoded.columns:
             df_encoded[feature] = np.nan
     
     # Reorder columns to match training data
     df_encoded = df_encoded[feature_order]
+    print("df_encoded")
+    print(df_encoded)
     
     # Transform using fitted preprocessor
     transformed = preprocessor.transform(df_encoded)
+    print("transformed")
+    print(transformed)
     
+    if return_df:
+        return transformed, df_encoded
+        
     return transformed
 
 
