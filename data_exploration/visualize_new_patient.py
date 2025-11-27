@@ -13,6 +13,10 @@ import os
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 # Import our encoding functions
+from feature_extraction.extract_text_features import get_icd_vectors
+from feature_extraction.extract_tabular_features import get_tabular_features, get_blood_features, get_target_classes
+from feature_extraction.extract_tma_features import get_tma_features
+
 from feature_extraction.encode_new_patient import preprocess_patient_data_from_dict
 from data_exploration.umap_embedding import get_umap_embedding
 
@@ -43,161 +47,82 @@ def load_and_encode_patient(base_path_str, patient_id="Unknown"):
     Returns a DataFrame row with the encoded patient data and UMAP coordinates.
     """
     base_path = Path(base_path_str)
-    raw_data = {}
-    
-    # 1. Clinical
-    clinical_path = base_path / "structured_data/clinical_data.json"
-    if clinical_path.exists():
-        with open(clinical_path) as f:
-            clinical_data = json.load(f)
-            raw_data.update(clinical_data)
-            # Try to infer patient ID if not provided
-            if patient_id == "Unknown" and "patient_id" in clinical_data:
-                patient_id = clinical_data["patient_id"]
-    
-    # 2. Pathological
-    try:
-        path_file = base_path / "structured_data/pathological_data.json"
-        if path_file.exists():
-            with open(path_file) as f:
-                path_data = json.load(f)
-                if isinstance(path_data, list):
-                    for item in path_data:
-                        raw_data.update(item)
-                else:
-                    raw_data.update(path_data)
-    except Exception:
-        pass
+    dest_dir = base_path.parent / "features"
+    if not dest_dir.exists():
+        dest_dir.mkdir(parents=True, exist_ok=True)
+    # Save text features (ICD codes as bag of words)
+    icd_vectors, icd_df, _ = get_icd_vectors(base_path / "text_data/icd_codes", save=False)
+    icd_df.to_csv(dest_dir/"icd_codes.csv", index=False)
 
-    # 3. Blood
-    # Load blood modes
-    with open('results/blood_modes.json') as f:
-        blood_modes_data = json.load(f)
-        modes_male = blood_modes_data['modes_male']
-        modes_female = blood_modes_data['modes_female']
-        blood_features_list = blood_modes_data['blood_features']
+    # Save clinical features
+    clinical_vectors, clinical_df = get_tabular_features(
+        base_path / "structured_data/clinical_data.json", save=False)
+    clinical_df.to_csv(dest_dir/"clinical.csv", index=False)
 
-    blood_file = base_path / "structured_data/blood_data.json"
-    
-    # Determine patient sex for mode selection
-    patient_sex = raw_data.get('sex', 'male')
-    modes_to_use = modes_male if patient_sex == 'male' else modes_female
-    
-    if blood_file.exists():
-        try:
-            blood_df = pd.read_json(blood_file, dtype={"patient_id": str})
-            # Pivot
-            blood_pivot = blood_df.pivot_table(
-                index="patient_id", columns="LOINC_name", values="value", aggfunc="first"
-            ).reset_index()
-            
-            for feature in blood_features_list:
-                if feature in blood_pivot.columns:
-                    val = blood_pivot[feature].values[0]
-                    if not pd.isna(val):
-                        raw_data[feature] = val
-                    else:
-                        raw_data[feature] = modes_to_use.get(feature, 0)
-                else:
-                    raw_data[feature] = modes_to_use.get(feature, 0)
-        except Exception:
-            # Fallback to modes
-            for feature in blood_features_list:
-                raw_data[feature] = modes_to_use.get(feature, 0)
-    else:
-        # No blood file, use modes
-        for feature in blood_features_list:
-            raw_data[feature] = modes_to_use.get(feature, 0)
+    # Save pathological features
+    patho_vectors, patho_df = get_tabular_features(
+        base_path / "structured_data/pathological_data.json", save=False)
+    patho_df.to_csv(dest_dir/"pathological.csv", index=False)
 
-    # 4. TMA
-    try:
-        tma_path = base_path / "tma_celldensity_measurements/TMA_celldensity_measurements.csv"
-        if tma_path.exists():
-            df_tma = pd.read_csv(tma_path, dtype={"Case ID": str})
-            # Filter by patient ID if possible, otherwise take all (assuming folder is per-patient)
-            # If patient_id is in the CSV, use it.
-            if "Case ID" in df_tma.columns:
-                # Try to match the patient_id we found, or just take the first row's ID
-                # For now, let's assume the CSV contains data for this patient
-                # If we have a specific ID, filter.
-                if patient_id != "Unknown":
-                     df_tma_pt = df_tma[df_tma["Case ID"] == patient_id]
-                     if len(df_tma_pt) == 0:
-                         # Try '001' style vs '1' style? Or just take the whole file if it's in a patient folder?
-                         # Let's assume the file might contain multiple, but we want the one matching our ID.
-                         # If no match, maybe the ID in CSV is different.
-                         pass
-                     else:
-                         df_tma = df_tma_pt
+    # Save blood parameters
+    blood_vectors, blood_df = get_blood_features(
+        file_path_blood=base_path / "structured_data/blood_data.json",
+        file_path_normal=base_path / "structured_data/blood_data_reference_ranges.json",
+        file_path_clinical=base_path / "structured_data/clinical_data.json",
+        save=False
+    )
+    blood_df.to_csv(dest_dir / "blood.csv", index=False)
 
-            if len(df_tma) > 0:
-                df_tma["location"] = df_tma["Image"].str.extract(r"(TumorCenter|InvasionFront)")
-                df_tma["marker"] = df_tma["Image"].str.extract(r"(CD3|CD8)")
-                
-                cd3 = df_tma[df_tma.marker == "CD3"]
-                cd8 = df_tma[df_tma.marker == "CD8"]
-                
-                if not cd3.empty:
-                    raw_data["cd3_z"] = cd3[cd3["location"] == "TumorCenter"]["Num Positive per mm^2"].mean()
-                    raw_data["cd3_inv"] = cd3[cd3["location"] == "InvasionFront"]["Num Positive per mm^2"].mean()
-                if not cd8.empty:
-                    raw_data["cd8_z"] = cd8[cd8["location"] == "TumorCenter"]["Num Positive per mm^2"].mean()
-                    raw_data["cd8_inv"] = cd8[cd8["location"] == "InvasionFront"]["Num Positive per mm^2"].mean()
-    except Exception:
-        pass
+    # Save cell densities from CD3 and CD8 TMAs
+    tma_vectors, tma_df = get_tma_features(base_path / "tma_celldensity_measurements/TMA_celldensity_measurements.csv")
+    tma_df.to_csv(dest_dir/"tma_cell_density.csv", index=False)
 
-    # 5. ICD Codes
-    icd_path = base_path / "text_data/icd_codes"
-    
-    # Initialize all ICD codes to 0
-    icd_csv = pd.read_csv('features/icd_codes.csv', dtype={'patient_id': str})
-    icd_columns = [col for col in icd_csv.columns if col != 'patient_id']
-    for col in icd_columns:
-        raw_data[col] = 0
+    # encode data 
+    # Load encoded data
+    clinical = pd.read_csv(dest_dir/"clinical.csv", dtype={"patient_id": str})
+    patho = pd.read_csv(dest_dir/"pathological.csv", dtype={"patient_id": str})
+    blood = pd.read_csv(dest_dir/"blood.csv", dtype={"patient_id": str})
+    icd = pd.read_csv(dest_dir/"icd_codes.csv", dtype={"patient_id": str})
+    cell_density= pd.read_csv(dest_dir/"tma_cell_density.csv", dtype={"patient_id": str})
 
-    if icd_path.exists():
-        import re
-        # Look for any txt file in the folder
-        icd_files = list(icd_path.glob("*.txt"))
-        for icd_file in icd_files:
-            with open(icd_file, 'r') as f:
-                content = f.read()
-            codes = re.findall(r'\[([A-Z]\d{2,3}\.?\d*)', content)
-            for code in codes:
-                feat_name = code.replace('.', '').lower()
-                if feat_name in raw_data:
-                    raw_data[feat_name] += 1
+    # Merge modalities
+    df = clinical.merge(patho, on="patient_id", how="inner")
+    df = df.merge(blood, on="patient_id", how="inner")
+    df = df.merge(icd, on="patient_id", how="inner")
+    df = df.merge(cell_density, on="patient_id", how="inner")
+    df = df.reset_index(drop=True)
 
-    # Encode
-    X_new, df_new_encoded = preprocess_patient_data_from_dict(raw_data, feature_order, preprocessor, return_df=True)
+    # feature order 
+    # with open(results_dir / "feature_order.json", "r") as f:
+    #     feature_order = json.load(f)
 
-    # Transform UMAP
-    new_embedding = umap_model.transform(X_new)
-    new_umap_x = new_embedding[0, 0]
-    new_umap_y = new_embedding[0, 1]
+    # df = df[feature_order]
 
-    # Normalize
-    new_umap_x = (new_umap_x - norm_params['min_x']) / (norm_params['max_x'] - norm_params['min_x'])
-    new_umap_y = (new_umap_y - norm_params['min_y']) / (norm_params['max_y'] - norm_params['min_y'])
+    # project into UMAP space
+    # Preprocess embeddings
+    results_dir = "./"
+    preprocessor = joblib.load(results_dir + "preprocessor.pkl")
+    embeddings = preprocessor.transform(df.drop("patient_id", axis=1))
+
+    # Reduce to 2D
+    umap_model = joblib.load(results_dir + "umap_model.pkl")
+    umap_embedding = umap_model.transform(embeddings)
+        
+
+    # Add UMAP to the dataframe
 
     # Create DataFrame row
-    df_new = df_new_encoded.copy()
+    df_new = df.copy()
     df_new['patient_id'] = f"New_{patient_id}"
-    df_new['UMAP 1'] = new_umap_x
-    df_new['UMAP 2'] = new_umap_y
+    df_new["UMAP 1"] = umap_embedding[:, 0]
+    df_new["UMAP 2"] = umap_embedding[:, 1]
     df_new['dataset'] = 'New Patient'
-    
-    # Add back raw values for tooltip if they exist in raw_data but not in encoded df
-    # (Optional, but good for display)
-    for k, v in raw_data.items():
-        if k not in df_new.columns:
-            df_new[k] = v
             
     return df_new
 
 # Initial load of patient 001
-print("Encoding initial patient 001...")
-df_new_001 = load_and_encode_patient(f"test_patient_001/raw", "001")
+print("Encoding initial patient 002...")
+df_new_001 = load_and_encode_patient(f"test_patient_002/raw", "002")
 
 # Concatenate
 df_combined = pd.concat([df_train, df_new_001], ignore_index=True)

@@ -2,9 +2,10 @@ import os
 import re
 import pandas as pd
 from sklearn.feature_extraction.text import CountVectorizer
+import joblib
 
 
-def get_icd_vectors(icd_directory):
+def get_icd_vectors(icd_directory, save=False):
     """
 
     Parameters
@@ -42,8 +43,14 @@ def get_icd_vectors(icd_directory):
     # Create dataframe
     df = pd.DataFrame({"patient_id": pd.Series(ids, dtype=str), "icd_code": pd.Series(codes, dtype=str)})
 
-    cv = CountVectorizer(ngram_range=(1, 1), min_df=3)
-    bow = cv.fit_transform(df.icd_code)
+    if save:
+        cv = CountVectorizer(ngram_range=(1, 1), min_df=3)
+        cv = cv.fit(df.icd_code)
+        joblib.dump(cv, "icd_vectorizer.joblib")
+    else:
+        cv = joblib.load("icd_vectorizer.joblib")
+
+    bow = cv.transform(df.icd_code)
 
     bow_df = pd.DataFrame(data=bow.toarray(), columns=cv.get_feature_names_out().tolist())
     bow_df.insert(0, "patient_id", df.patient_id)

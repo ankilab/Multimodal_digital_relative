@@ -13,7 +13,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import rcParams
 import seaborn as sns
-
+import joblib
 
 SEED = 42
 
@@ -101,19 +101,27 @@ def get_umap_embedding(features_directory, umap_min_dist=0.1, umap_n_neighbors=1
 
     # Preprocess embeddings
     preprocessor = setup_preprocessing_pipeline(df.columns[1:])
-    embeddings = preprocessor.fit_transform(df.drop("patient_id", axis=1))
+    preprocessor = preprocessor.fit(df.drop("patient_id", axis=1))
+    # Save preprocessor
+    joblib.dump(preprocessor, "../preprocessor.pkl")
+
+    embeddings = preprocessor.transform(df.drop("patient_id", axis=1))
 
     # Reduce to 2D
-    umap = UMAP(random_state=SEED, min_dist=umap_min_dist, n_neighbors=umap_n_neighbors).fit_transform(embeddings)
+    umap_model = UMAP(random_state=SEED, min_dist=umap_min_dist, n_neighbors=umap_n_neighbors)
+    umap_model.fit(embeddings)
+    joblib.dump(umap_model, "../umap_model.pkl")
+    umap = umap_model.transform(embeddings)
+    
 
     # Normalize axes
-    tx, ty = umap[:, 0], umap[:, 1]
-    tx = (tx - np.min(tx)) / (np.max(tx) - np.min(tx))
-    ty = (ty - np.min(ty)) / (np.max(ty) - np.min(ty))
+    #tx, ty = umap[:, 0], umap[:, 1]
+    #tx = (tx - np.min(tx)) / (np.max(tx) - np.min(tx))
+    #ty = (ty - np.min(ty)) / (np.max(ty) - np.min(ty))
 
     # Add UMAP to the dataframe
-    df["UMAP 1"] = tx
-    df["UMAP 2"] = ty
+    df["UMAP 1"] = umap[:, 0]
+    df["UMAP 2"] = umap[:, 1]
 
     return df
 

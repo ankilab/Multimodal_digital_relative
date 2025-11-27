@@ -35,7 +35,7 @@ if __name__ == "__main__":
     dest_dir = Path(args.features_dir)
 
     # Save text features (ICD codes as bag of words)
-    icd_vectors, icd_df, _ = get_icd_vectors(args.path_icd_codes)
+    icd_vectors, icd_df, _ = get_icd_vectors(args.path_icd_codes, save=True)
     if args.npz:
         save_numpy_compressed(icd_df.patient_id.tolist(),
                               icd_vectors, str(dest_dir / "icd_codes"))
@@ -44,7 +44,7 @@ if __name__ == "__main__":
 
     # Save clinical features
     clinical_vectors, clinical_df = get_tabular_features(
-        args.path_clinical, verbose=args.verbose)
+        args.path_clinical, verbose=args.verbose, save=True)
     if args.npz:
         save_numpy_compressed(clinical_df.patient_id.tolist(
         ), clinical_vectors, str(dest_dir/"clinical"))
@@ -53,7 +53,7 @@ if __name__ == "__main__":
 
     # Save pathological features
     patho_vectors, patho_df = get_tabular_features(
-        args.path_patho, verbose=args.verbose)
+        args.path_patho, verbose=args.verbose, save=True)
     if args.npz:
         save_numpy_compressed(patho_df.patient_id.tolist(
         ), patho_vectors, str(dest_dir/"pathological"))
@@ -65,7 +65,8 @@ if __name__ == "__main__":
         file_path_blood=args.path_blood,
         file_path_normal=args.path_blood_ref,
         file_path_clinical=args.path_clinical,
-        verbose=args.verbose
+        verbose=args.verbose,
+        save=True
     )
     if args.npz:
         save_numpy_compressed(blood_df.patient_id.tolist(),

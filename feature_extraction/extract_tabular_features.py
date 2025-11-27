@@ -3,6 +3,7 @@ import numpy as np
 from sklearn.preprocessing import LabelEncoder
 import matplotlib.pyplot as plt
 import seaborn as sns
+import joblib
 
 
 BINARY_FEATURES = [
@@ -84,7 +85,7 @@ def get_binary_features(df_original, verbose=0):
     return df
 
 
-def get_nominal_features(df_original, verbose=0):
+def get_nominal_features(df_original, verbose=0, save=False):
     if verbose == 1:
         print("\n=== Nominal features ===")
     df = pd.DataFrame()
@@ -94,8 +95,15 @@ def get_nominal_features(df_original, verbose=0):
         # Get values of current feature
         temp = df_original[feature]
         # Label encoding
-        labelencoder = LabelEncoder()
-        encoded = labelencoder.fit_transform(temp)
+        if save:
+            labelencoder = LabelEncoder()
+            labelencoder.fit(temp)
+            joblib.dump(labelencoder, f"{feature}_nominal_labelencoder.joblib")
+        else:
+            labelencoder = joblib.load(f"{feature}_nominal_labelencoder.joblib")
+        print(labelencoder.classes_)
+
+        encoded = labelencoder.transform(temp)
         df[feature] = encoded
         le_name_mapping = dict(zip(labelencoder.classes_, labelencoder.transform(labelencoder.classes_)))
         if verbose == 1:
@@ -117,7 +125,7 @@ def get_discrete_features(df_original, verbose=0):
     return df
 
 
-def get_ordinal_features(df_original, verbose=0):
+def get_ordinal_features(df_original, verbose=0, save=False):
     df_copy = df_original.copy()
     ordinal_features = [col for col in df_original.columns if col in ORDINAL_FEATURES]
 
@@ -130,19 +138,25 @@ def get_ordinal_features(df_original, verbose=0):
             # Change order to [pTis, pTX, pT1, pT2, ...]
             df_copy["pT_stage"] = df_copy["pT_stage"].replace({"pTis": "T0is"})  # pTis = in situ
 
-        le = LabelEncoder()
-        df[feature] = le.fit_transform(df_copy[feature])
+        if save:
+            labelencoder = LabelEncoder()
+            labelencoder.fit(df_copy[feature])
+            joblib.dump(labelencoder, f"{feature}_ordinal_labelencoder.joblib")
+        else:
+            labelencoder = joblib.load(f"{feature}_ordinal_labelencoder.joblib")
+
+        df[feature] = labelencoder.transform(df_copy[feature])
         if verbose == 1:
-            print(feature, list(le.classes_))
+            print(feature, list(labelencoder.classes_))
     return df
 
 
-def get_tabular_features(file_path, verbose=0):
+def get_tabular_features(file_path, verbose=0, save=False):
     df = pd.read_json(file_path, dtype={"patient_id": str})
     df_binary = get_binary_features(df, verbose)
-    df_nominal = get_nominal_features(df, verbose)
+    df_nominal = get_nominal_features(df, verbose, save)
     df_discrete = get_discrete_features(df, verbose)
-    df_ordinal = get_ordinal_features(df, verbose)
+    df_ordinal = get_ordinal_features(df, verbose, save)
 
     features_df = pd.concat([df_binary, df_nominal, df_discrete, df_ordinal], axis=1)
     features = features_df.to_numpy()
@@ -212,7 +226,7 @@ def fill_missing_values(df, fill_dict_f, fill_dict_m, ids_f, ids_m, verbose=0):
     return df
 
 
-def get_blood_features(file_path_blood, file_path_normal, file_path_clinical, impute_missing=True, verbose=0):
+def get_blood_features(file_path_blood, file_path_normal, file_path_clinical, impute_missing=True, verbose=0, save=False):
     data = pd.read_json(file_path_blood, dtype={"patient_id": str})
     clinical = pd.read_json(file_path_clinical, dtype={"patient_id": str})
     ref = pd.read_json(file_path_normal)
@@ -226,30 +240,38 @@ def get_blood_features(file_path_blood, file_path_normal, file_path_clinical, im
     data = data[["patient_id"] + parameters]
 
     # Drop outlier
-    cols = ["patient_id", "Basophils [#/volume] in Blood", "Leukocytes [#/volume] in Blood"]
-    subset = data[cols].copy()
-    outlier_idx = subset[subset.columns[1:]].idxmax().unique()
-    assert len(outlier_idx) == 1, "Patient with outlier values not found."
-    subset["outlier"] = ["no"]*len(subset)
-    subset.iloc[outlier_idx, -1] = "yes"
-    if verbose == 1:
-        fig, axs = plt.subplots(2, figsize=(4, 2))
-        for i in range(2):
-            sns.stripplot(subset, x=subset.columns[i + 1], s=3, jitter=0.3, ax=axs[i], hue="outlier")
-            sns.move_legend(axs[i], "upper left", bbox_to_anchor=(1, 1))
-        plt.title("Outlier to be removed")
-        plt.tight_layout()
-        plt.show()
-    data = data.drop(outlier_idx, axis=0).reset_index(drop=True)
+    if save:
+        cols = ["patient_id", "Basophils [#/volume] in Blood", "Leukocytes [#/volume] in Blood"]
+        subset = data[cols].copy()
+        outlier_idx = subset[subset.columns[1:]].idxmax().unique()
+        assert len(outlier_idx) == 1, "Patient with outlier values not found."
+        subset["outlier"] = ["no"]*len(subset)
+        subset.iloc[outlier_idx, -1] = "yes"
+        if verbose == 1:
+            fig, axs = plt.subplots(2, figsize=(4, 2))
+            for i in range(2):
+                sns.stripplot(subset, x=subset.columns[i + 1], s=3, jitter=0.3, ax=axs[i], hue="outlier")
+                sns.move_legend(axs[i], "upper left", bbox_to_anchor=(1, 1))
+            plt.title("Outlier to be removed")
+            plt.tight_layout()
+            plt.show()
+        data = data.drop(outlier_idx, axis=0).reset_index(drop=True)
 
     if impute_missing:
         # Get patient patient_ids for males and females
         ids_male = clinical[clinical.sex == "male"].patient_id.tolist()
         ids_female = clinical[clinical.sex == "female"].patient_id.tolist()
+        if save:
+            # Calculate mode from histogram of each parameter
+            modes_male = get_mode(data, ref, ids_male, verbose)
+            modes_female = get_mode(data, ref, ids_female, verbose)
 
-        # Calculate mode from histogram of each parameter
-        modes_male = get_mode(data, ref, ids_male, verbose)
-        modes_female = get_mode(data, ref, ids_female, verbose)
+            joblib.dump(modes_female, "modes_female.joblib")
+            joblib.dump(modes_male, "modes_male.joblib")
+        else:
+            modes_female = joblib.load("modes_female.joblib")
+            modes_male = joblib.load("modes_male.joblib")
+
         data = fill_missing_values(data, modes_female, modes_male, ids_female, ids_male, verbose)
 
     # Save raw values
