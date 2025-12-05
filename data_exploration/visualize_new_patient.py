@@ -4,7 +4,8 @@ import joblib
 import json
 import plotly.express as px
 import plotly.graph_objects as go
-from dash import Dash, dcc, html, Output, Input, State, callback_context
+from sklearn.metrics.pairwise import cosine_similarity
+from dash import Dash, dcc, html, Output, Input, State, callback_context, dash_table
 from pathlib import Path
 import sys
 import os
@@ -17,7 +18,7 @@ from feature_extraction.extract_text_features import get_icd_vectors
 from feature_extraction.extract_tabular_features import get_tabular_features, get_blood_features, get_target_classes
 from feature_extraction.extract_tma_features import get_tma_features
 
-from feature_extraction.encode_new_patient import preprocess_patient_data_from_dict
+# from feature_extraction.encode_new_patient import preprocess_patient_data_from_dict
 from data_exploration.umap_embedding import get_umap_embedding
 
 # -----------------------------------------------------------------------------
@@ -102,6 +103,7 @@ def load_and_encode_patient(base_path_str, patient_id="Unknown"):
     # Preprocess embeddings
     results_dir = "./"
     preprocessor = joblib.load(results_dir + "preprocessor.pkl")
+    print(df.drop("patient_id", axis=1))
     embeddings = preprocessor.transform(df.drop("patient_id", axis=1))
 
     # Reduce to 2D
@@ -122,7 +124,7 @@ def load_and_encode_patient(base_path_str, patient_id="Unknown"):
 
 # Initial load of patient 001
 print("Encoding initial patient 002...")
-df_new_001 = load_and_encode_patient(f"test_patient_002/raw", "002")
+df_new_001 = load_and_encode_patient(f"test_patient_040/raw", "040")
 
 # Concatenate
 df_combined = pd.concat([df_train, df_new_001], ignore_index=True)
@@ -173,6 +175,11 @@ app.layout = html.Div([
                 clearable=False
             )
         ], style={'width': '30%', 'display': 'inline-block', 'marginLeft': '20px'}),
+        
+        html.Div([
+            html.Button('Find Similar Patients', id='find-similar-btn', n_clicks=0),
+        ], style={'width': '20%', 'display': 'inline-block', 'marginLeft': '20px', 'verticalAlign': 'top'}),
+
     ], style={'padding': '20px'}),
     
     html.Div([
@@ -183,8 +190,16 @@ app.layout = html.Div([
         ], style={'height': '70vh', 'width': '25%', 'display': 'inline-block', 'verticalAlign': 'top', 'padding': '20px', 'overflowY': 'scroll', 'border': '1px solid #ccc'})
     ]),
     
+    # Similarity Table Section
+    html.Div([
+        html.H3("Top 5 Similar Patients"),
+        html.Div(id='similarity-table-container')
+    ], style={'padding': '20px', 'marginTop': '20px', 'borderTop': '1px solid #ccc'}),
+    
     # Store for new patients
-    dcc.Store(id='new-patients-store', data=[])  # List of records
+    dcc.Store(id='new-patients-store', data=[]),  # List of records
+    # Store for similar patients IDs
+    dcc.Store(id='similar-patients-store', data=[])
 ], style={'fontFamily': 'Arial, sans-serif'})
 
 # Callback to load new patient
@@ -232,9 +247,10 @@ def load_patient(n_clicks, path, current_data):
      Output('patient-dropdown', 'options')],
     [Input('hue-dropdown', 'value'),
      Input('patient-dropdown', 'value'),
-     Input('new-patients-store', 'data')]
+     Input('new-patients-store', 'data'),
+     Input('similar-patients-store', 'data')]
 )
-def update_graph(hue, highlight_patient, new_patients_data):
+def update_graph(hue, highlight_patient, new_patients_data, similar_patients_ids):
     # Combine initial data with new patients
     if new_patients_data:
         df_new_pts = pd.DataFrame(new_patients_data)
@@ -260,8 +276,22 @@ def update_graph(hue, highlight_patient, new_patients_data):
         # Increase right margin to accommodate legend without shrinking plot
         #margin=dict(l=50, r=400, t=50, b=50),
         #autosize=False
-    )
-    
+            )
+    # Highlight similar patients
+    if similar_patients_ids:
+        sim_data = df_plot[df_plot['patient_id'].isin(similar_patients_ids)]
+        if not sim_data.empty:
+             fig.add_trace(
+                go.Scatter(
+                    x=sim_data['UMAP 1'],
+                    y=sim_data['UMAP 2'],
+                    mode='markers',
+                    marker=dict(size=12, color='orange', symbol='diamond', line=dict(width=1, color='black')),
+                    name="Similar Patients",
+                    hoverinfo='skip' # Or show ID
+                )
+            )
+
     # Highlight selected patient
     if highlight_patient != 'None' and highlight_patient in df_plot['patient_id'].values:
         pt_data = df_plot[df_plot['patient_id'] == highlight_patient]
@@ -346,6 +376,206 @@ def display_click_data(clickData, new_patients_data):
             
     return details
 
+# Helper to get feature groups
+def get_feature_groups(features_dir="./features"):
+    groups = {}
+    # Map filename to display name
+    files = {
+        'clinical.csv': 'Clinical Data',
+        'pathological.csv': 'Pathological Data',
+        'blood.csv': 'Blood Data',
+        'tma_cell_density.csv': 'TMA Data',
+        'icd_codes.csv': 'ICD Codes'
+    }
+    
+    for filename, group_name in files.items():
+        path = Path(features_dir) / filename
+        if path.exists():
+            # Read only headers
+            try:
+                df = pd.read_csv(path, nrows=0)
+                # Exclude patient_id
+                features = [c for c in df.columns if c != 'patient_id']
+                groups[group_name] = features
+            except:
+                pass
+            
+    return groups
+
+# Callback for Similarity Search
+@app.callback(
+    [Output('similarity-table-container', 'children'),
+     Output('similar-patients-store', 'data')],
+    [Input('find-similar-btn', 'n_clicks')],
+    [State('patient-dropdown', 'value'),
+     State('new-patients-store', 'data')]
+)
+def find_similar_patients(n_clicks, highlight_patient, new_patients_data):
+    if n_clicks == 0 or highlight_patient == 'None':
+        return "", []
+    
+    # Reconstruct full dataframe
+    if new_patients_data:
+        df_new_pts = pd.DataFrame(new_patients_data)
+        df_full = pd.concat([df_combined, df_new_pts], ignore_index=True)
+    else:
+        df_full = df_combined.copy()
+        
+    # Get target patient data
+    target_row = df_full[df_full['patient_id'] == highlight_patient]
+    if target_row.empty:
+        return "Selected patient not found.", []
+    
+    # Prepare data for similarity calculation
+    X_raw = df_full.copy()
+    for col in feature_order:
+        if col not in X_raw.columns:
+            X_raw[col] = np.nan
+    X_raw = X_raw[feature_order]
+    
+    try:
+        X_encoded = preprocessor.transform(X_raw)
+    except Exception as e:
+        return f"Error in preprocessing for similarity: {e}", []
+    
+    # Find index of target patient
+    target_idx = df_full[df_full['patient_id'] == highlight_patient].index[0]
+    target_vector = X_encoded[target_idx].reshape(1, -1)
+    
+    # Calculate similarity
+    sim_scores = cosine_similarity(target_vector, X_encoded)[0]
+    
+    # Get top 5 (excluding self)
+    sorted_indices = sim_scores.argsort()[::-1]
+    top_indices = [i for i in sorted_indices if i != target_idx][:5]
+    
+    # Create result table
+    result_indices = [target_idx] + top_indices
+    result_df = df_full.iloc[result_indices].copy()
+    
+    # Add similarity score
+    result_df['Similarity'] = sim_scores[result_indices]
+    result_df['Similarity'] = result_df['Similarity'].apply(lambda x: f"{x:.4f}")
+    
+    # Transpose
+    # We want columns to be Patient IDs
+    # First, ensure patient_id is the index or we handle it manually
+    # Let's make patient_id the index before transposing
+    result_df = result_df.set_index('patient_id')
+    
+    # Transpose: Rows are now attributes, Columns are Patient IDs
+    df_transposed = result_df.T
+    
+    # Reset index to make 'Attribute' a column
+    df_transposed = df_transposed.reset_index().rename(columns={'index': 'Attribute'})
+    
+    # Identify columns
+    # The first column is 'Attribute'
+    # The subsequent columns are the Patient IDs (Target + 5 Similar)
+    patient_cols = df_transposed.columns[1:].tolist()
+    target_col = patient_cols[0]
+    comparison_cols = patient_cols[1:] # These are the IDs of the similar patients
+    
+    # Define style for highlighting differences
+    style_data_conditional = []
+    
+    # Highlight Target Column
+    style_data_conditional.append({
+        'if': {'column_id': target_col},
+        'backgroundColor': '#e6f2ff', # Light blue
+        'fontWeight': 'bold'
+    })
+    
+    # Highlight differences
+    for col in comparison_cols:
+        style_data_conditional.append({
+            'if': {
+                'filter_query': f'{{{col}}} != {{{target_col}}}',
+                'column_id': col
+            },
+            'backgroundColor': '#ffcccc', # Light red
+            'color': 'black'
+        })
+
+    # Get Feature Groups
+    feature_groups = get_feature_groups()
+    
+    # Create HTML components
+    children = []
+    
+    # 1. Summary Section (Similarity, Dataset, UMAP coords if desired)
+    summary_features = ['Similarity', 'dataset', 'UMAP 1', 'UMAP 2']
+    df_summary = df_transposed[df_transposed['Attribute'].isin(summary_features)]
+    
+    if not df_summary.empty:
+        children.append(html.H4("Summary"))
+        children.append(dash_table.DataTable(
+            data=df_summary.to_dict('records'),
+            columns=[{'name': i, 'id': i} for i in df_transposed.columns],
+            style_table={'overflowX': 'auto', 'marginBottom': '20px'},
+            style_cell={'textAlign': 'left', 'minWidth': '150px', 'width': '150px', 'maxWidth': '150px', 'whiteSpace': 'normal'},
+            style_cell_conditional=[
+                {'if': {'column_id': 'Attribute'},
+                 'width': '250px', 'minWidth': '250px', 'maxWidth': '250px'}
+            ],
+            style_data_conditional=style_data_conditional
+        ))
+        
+    # 2. Grouped Sections
+    # Order of groups
+    group_order = ['Clinical Data', 'Pathological Data', 'Blood Data', 'TMA Data', 'ICD Codes']
+    
+    for group_name in group_order:
+        if group_name in feature_groups:
+            features = feature_groups[group_name]
+            # Filter transposed DF for these features
+            df_group = df_transposed[df_transposed['Attribute'].isin(features)]
+            
+            if not df_group.empty:
+                # Create DataTable
+                table = dash_table.DataTable(
+                    data=df_group.to_dict('records'),
+                    columns=[{'name': i, 'id': i} for i in df_transposed.columns],
+                    style_table={'overflowX': 'auto'},
+                    style_cell={'textAlign': 'left', 'minWidth': '150px', 'width': '150px', 'maxWidth': '150px', 'whiteSpace': 'normal'},
+                    style_cell_conditional=[
+                        {'if': {'column_id': 'Attribute'},
+                         'width': '250px', 'minWidth': '250px', 'maxWidth': '250px'}
+                    ],
+                    style_data_conditional=style_data_conditional,
+                    page_size=20 if group_name != 'ICD Codes' else 10 # Limit ICD page size
+                )
+                
+                # Wrap in Details
+                details = html.Details([
+                    html.Summary(html.B(f"{group_name} ({len(df_group)} attributes)"), style={'cursor': 'pointer', 'fontSize': '16px', 'padding': '10px', 'backgroundColor': '#f0f0f0'}),
+                    html.Div(table, style={'padding': '10px', 'border': '1px solid #ddd', 'borderTop': 'none'})
+                ], style={'marginBottom': '10px', 'border': '1px solid #ccc', 'borderRadius': '5px'})
+                
+                children.append(details)
+                
+    # 3. Other/Uncategorized Features (if any)
+    all_grouped_features = sum(feature_groups.values(), []) + summary_features
+    df_other = df_transposed[~df_transposed['Attribute'].isin(all_grouped_features)]
+    
+    if not df_other.empty:
+        children.append(html.Details([
+            html.Summary(html.B(f"Other Attributes ({len(df_other)})"), style={'cursor': 'pointer', 'fontSize': '16px', 'padding': '10px', 'backgroundColor': '#f0f0f0'}),
+            html.Div(dash_table.DataTable(
+                data=df_other.to_dict('records'),
+                columns=[{'name': i, 'id': i} for i in df_transposed.columns],
+                style_table={'overflowX': 'auto'},
+                style_cell={'textAlign': 'left', 'minWidth': '150px', 'width': '150px', 'maxWidth': '150px', 'whiteSpace': 'normal'},
+                style_cell_conditional=[
+                    {'if': {'column_id': 'Attribute'},
+                     'width': '250px', 'minWidth': '250px', 'maxWidth': '250px'}
+                ],
+                style_data_conditional=style_data_conditional
+            ), style={'padding': '10px'})
+        ], style={'marginBottom': '10px', 'border': '1px solid #ccc'}))
+        
+    return children, comparison_cols
+
 if __name__ == '__main__':
     print("Starting Dash app...")
-    app.run(debug=True, port=8040)
+    app.run(debug=True, port=8044)
