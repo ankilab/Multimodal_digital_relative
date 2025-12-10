@@ -91,28 +91,36 @@ def get_umap_embedding(features_directory, umap_min_dist=0.1, umap_n_neighbors=1
     blood = pd.read_csv(fdir/"blood.csv", dtype={"patient_id": str})
     icd = pd.read_csv(fdir/"icd_codes.csv", dtype={"patient_id": str})
     cell_density= pd.read_csv(fdir/"tma_cell_density.csv", dtype={"patient_id": str})
+    targets = pd.read_csv(fdir/"targets.csv", dtype={"patient_id": str})
 
     # Merge modalities
     df = clinical.merge(patho, on="patient_id", how="inner")
     df = df.merge(blood, on="patient_id", how="inner")
     df = df.merge(icd, on="patient_id", how="inner")
     df = df.merge(cell_density, on="patient_id", how="inner")
+    df = df.merge(targets, on="patient_id", how="inner")
     df = df.reset_index(drop=True)
 
     # Preprocess embeddings
-    preprocessor = setup_preprocessing_pipeline(df.columns[1:])
-    preprocessor = preprocessor.fit(df.drop("patient_id", axis=1))
+    # Exclude target columns from UMAP
+    target_cols = [c for c in targets.columns if c != "patient_id"]
+    df_for_umap = df.drop(["patient_id"] + target_cols, axis=1)
+    
+    preprocessor = setup_preprocessing_pipeline(df_for_umap.columns)
+    preprocessor = preprocessor.fit(df_for_umap)
     # Save preprocessor
     joblib.dump(preprocessor, "../preprocessor.pkl")
 
-    embeddings = preprocessor.transform(df.drop("patient_id", axis=1))
+    embeddings = preprocessor.transform(df_for_umap)
 
     # Reduce to 2D
     umap_model = UMAP(random_state=SEED, min_dist=umap_min_dist, n_neighbors=umap_n_neighbors)
     umap_model.fit(embeddings)
     joblib.dump(umap_model, "../umap_model.pkl")
     umap = umap_model.transform(embeddings)
-    
+    #umap = np.array([umap_model.transform([embeddings[i]])[0] for i in range(embeddings.shape[0])])
+
+
 
     # Normalize axes
     #tx, ty = umap[:, 0], umap[:, 1]
@@ -122,6 +130,37 @@ def get_umap_embedding(features_directory, umap_min_dist=0.1, umap_n_neighbors=1
     # Add UMAP to the dataframe
     df["UMAP 1"] = umap[:, 0]
     df["UMAP 2"] = umap[:, 1]
+
+    
+
+
+    # Check embeddings comparison
+    # Original embedding
+    # a_embedding=embeddings[0]
+
+    # # New patient embedding
+    # b = df.loc[0]
+    # print(b)
+    # b_embedding = preprocessor.transform(pd.DataFrame([b.drop("patient_id")]))
+
+    # print("np.allclose(a_embedding,b_embedding):", np.allclose(a_embedding,b_embedding)) 
+    # print("a_embedding == b_embedding:", [a_embedding] == b_embedding) 
+
+    # print("np.allclose(umap_model.transform([a_embedding]), umap_model.transform(b_embedding))", np.allclose(umap_model.transform([a_embedding]), umap_model.transform(b_embedding)))
+    # print("np.allclose(umap_model.transform(embeddings)[0], umap_model.transform(b_embedding))", np.allclose(umap_model.transform(embeddings)[0], umap_model.transform(b_embedding)))
+    # print(umap_model.transform([a_embedding]) , umap_model.transform(b_embedding),umap_model.transform(embeddings)[0])
+
+    # # Preprocess embeddings
+    # preprocessor = joblib.load( "../preprocessor.pkl")
+    # b_embeddings_loaded = preprocessor.transform(pd.DataFrame([b.drop("patient_id")]))
+
+    # print("np.allclose(a_embedding,b_embedding):", np.allclose(embeddings[0],b_embeddings_loaded)) 
+
+
+    # # Reduce to 2D
+    # umap_model_loaded = joblib.load("../umap_model.pkl")
+    # print("np.allclose(umap.transform(a), umap.transform(b))", np.allclose(umap_model_loaded.transform(embeddings[0]), umap_model_loaded.transform(b_embeddings_loaded)))  
+
 
     return df
 

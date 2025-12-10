@@ -17,6 +17,9 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 from feature_extraction.extract_text_features import get_icd_vectors
 from feature_extraction.extract_tabular_features import get_tabular_features, get_blood_features, get_target_classes
 from feature_extraction.extract_tma_features import get_tma_features
+from process_patient_pipeline import process_patient
+import base64
+import io
 
 # from feature_extraction.encode_new_patient import preprocess_patient_data_from_dict
 from data_exploration.umap_embedding import get_umap_embedding
@@ -199,6 +202,27 @@ app.layout = html.Div([
             html.Button('Load Patient', id='load-btn', n_clicks=0, className='custom-btn'),
         ], className='control-item', style={'minWidth': 'auto', 'justifyContent': 'flex-end'}),
 
+        # # 6. Image Upload Section
+        # html.Div([
+        #     html.Label("TMA Image Path:"),
+        #     dcc.Input(
+        #         id='image-path-input',
+        #         type='text',
+        #         placeholder='/path/to/image.svs',
+        #         className='custom-input',
+        #         style={'width': '100%', 'marginBottom': '5px'}
+        #     ),
+        #     html.Label("TMA Map Path (CSV):"),
+        #     dcc.Input(
+        #         id='map-path-input',
+        #         type='text',
+        #         placeholder='/path/to/map.csv',
+        #         className='custom-input',
+        #         style={'width': '100%', 'marginBottom': '5px'}
+        #     ),
+        #      html.Button('Process Image', id='process-image-btn', n_clicks=0, className='custom-btn', style={'marginTop': '10px', 'width': '100%'}),
+        # ], className='control-item', style={'flex': '2', 'minWidth': '300px'}),
+
         # Status Message (can be next to load button or at end)
         html.Div(id='status-msg', className='status-msg', style={'color': 'blue'}),
 
@@ -270,6 +294,49 @@ def load_patient(n_clicks, path, current_data):
         return updated_data, f"Successfully loaded patient {df_new_pt['patient_id'].iloc[0]}", df_new_pt['patient_id'].iloc[0]
     except Exception as e:
         return current_data, f"Error loading patient: {str(e)}", no_update
+
+# Callback to process uploaded image
+@app.callback(
+    [Output('new-patients-store', 'data', allow_duplicate=True),
+     Output('status-msg', 'children', allow_duplicate=True)],
+    [Input('process-image-btn', 'n_clicks')],
+    [State('image-path-input', 'value'),
+     State('map-path-input', 'value'),
+     State('new-patients-store', 'data')],
+    prevent_initial_call=True
+)
+def process_new_patient_image(n_clicks, image_path_str, map_path_str, current_data):
+    if n_clicks == 0 or not image_path_str or not map_path_str:
+        return no_update, "Please provide both image and map paths."
+    
+    #try:
+    image_path = Path(image_path_str)
+    map_path = Path(map_path_str)
+
+    if not image_path.exists():
+        return no_update, f"Image path does not exist: {image_path}"
+    if not map_path.exists():
+        return no_update, f"Map path does not exist: {map_path}"
+        
+    # Generate Patient ID (e.g. from filename)
+    pt_id = image_path.stem.split('.')[0] # Use stem to get filename without extension
+    output_dir = Path(f"test_patient_{pt_id}")
+    output_dir.mkdir(exist_ok=True)
+    
+    # Run Pipeline
+    # Note: This might take a while and block the UI. 
+    # In a real app, use background callbacks.
+    feature_file = process_patient(image_path, map_path, pt_id, output_dir)
+    
+    if feature_file:
+            # Simplification: Just return success for now as the pipeline is complex to fully integrate in one go.
+            return current_data, f"Pipeline finished. Features saved to {feature_file}. (Integration pending)"
+    else:
+            return current_data, "Pipeline failed."
+
+    #except Exception as e:
+    #    return current_data, f"Error processing image: {str(e)}"
+
 
 # Callback to update graph and dropdowns
 @app.callback(
