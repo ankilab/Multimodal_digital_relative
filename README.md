@@ -39,6 +39,10 @@ For running the code described the section
 TensorFlow 2.16 is used (see `requirements.txt`). Furthermore, [QuPath](https://qupath.github.io/) needs to be installed 
 for the analysis of histology data.
 
+## UI Demo
+1. Run 'python feature_extraction/create_multimodal_patient_vectors.py' to get encoding models
+2. Run 'python data_exploration/visualize_new_patient.py' to get a demo of the UI - Dash is running on http://127.0.0.1:8044/
+
 ## Dataset
 The dataset can be explored and downloaded at our project website: https://hancock.research.fau.eu/
 
