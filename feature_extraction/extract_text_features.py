@@ -30,7 +30,9 @@ def get_icd_vectors(icd_directory, save=False):
         with open(file_path, "r", encoding="utf-8") as text:
             # Get id from filename
             patient_id = re.search(r"([0-9]{3}).txt", file).group(1)
+            file_has_lines = False
             for line in text:
+                file_has_lines = True
                 # Search for ICD codes
                 patient_codes = re.findall(r"\[([A-Z0-9\.\s]+)\]", line)
                 patient_codes = [code[:5].strip().replace(".", "") for code in patient_codes]
@@ -39,16 +41,21 @@ def get_icd_vectors(icd_directory, save=False):
                 # Get first 4 characters of each ICD code
                 codes.append(patient_codes)
                 ids.append(patient_id)
+            if not file_has_lines:
+                ids.append(patient_id)
+                codes.append("")
 
     # Create dataframe
+    #print(len(ids))
+    #print(len(codes))
     df = pd.DataFrame({"patient_id": pd.Series(ids, dtype=str), "icd_code": pd.Series(codes, dtype=str)})
-
+    #print(df)
     if save:
         cv = CountVectorizer(ngram_range=(1, 1), min_df=3)
         cv = cv.fit(df.icd_code)
-        joblib.dump(cv, "icd_vectorizer.joblib")
+        joblib.dump(cv, "models/icd_vectorizer.joblib")
     else:
-        cv = joblib.load("icd_vectorizer.joblib")
+        cv = joblib.load("models/icd_vectorizer.joblib")
 
     bow = cv.transform(df.icd_code)
 

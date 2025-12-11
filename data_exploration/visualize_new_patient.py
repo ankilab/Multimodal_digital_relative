@@ -17,7 +17,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 from feature_extraction.extract_text_features import get_icd_vectors
 from feature_extraction.extract_tabular_features import get_tabular_features, get_blood_features, get_target_classes
 from feature_extraction.extract_tma_features import get_tma_features
-from process_patient_pipeline import process_patient
+#from process_patient_pipeline import process_patient
 import base64
 import io
 
@@ -35,15 +35,13 @@ df_train['dataset'] = 'Training'
 # -----------------------------------------------------------------------------
 # 2. Encode New Patient (001)
 # -----------------------------------------------------------------------------
-print("Encoding new patient 001...")
 
 # Load models and metadata
-preprocessor = joblib.load('results/preprocessor.pkl')
-umap_model = joblib.load('results/umap_model.pkl')
-with open('results/feature_order.json') as f:
+preprocessor = joblib.load('models/preprocessor.pkl')
+umap_model = joblib.load('models/umap_model.pkl')
+with open('models/feature_order.json') as f:
     feature_order = json.load(f)
-with open('results/umap_normalization.json') as f:
-    norm_params = json.load(f)
+
 
 def load_and_encode_patient(base_path_str, patient_id="Unknown"):
     """
@@ -110,9 +108,7 @@ def load_and_encode_patient(base_path_str, patient_id="Unknown"):
 
     # project into UMAP space
     # Preprocess embeddings
-    results_dir = "./"
-    preprocessor = joblib.load(results_dir + "preprocessor.pkl")
-    
+       
     # Exclude target columns from UMAP input
     target_cols = [c for c in targets.columns if c != "patient_id"]
     df_for_umap = df.drop(["patient_id"] + target_cols, axis=1)
@@ -121,7 +117,6 @@ def load_and_encode_patient(base_path_str, patient_id="Unknown"):
     embeddings = preprocessor.transform(df_for_umap)
 
     # Reduce to 2D
-    umap_model = joblib.load(results_dir + "umap_model.pkl")
     umap_embedding = umap_model.transform(embeddings)
         
 
@@ -137,11 +132,12 @@ def load_and_encode_patient(base_path_str, patient_id="Unknown"):
     return df_new
 
 # Initial load of patient 001
-print("Encoding initial patient 002...")
-df_new_001 = load_and_encode_patient(f"test_patient_040/raw", "040")
+#print("Encoding initial patient 002...")
+#df_new_001 = load_and_encode_patient(f"test_patient_040/raw", "040")
 
 # Concatenate
-df_combined = pd.concat([df_train, df_new_001], ignore_index=True)
+#df_combined = pd.concat([df_train, df_new_001], ignore_index=True)
+df_combined = df_train
 
 # -----------------------------------------------------------------------------
 # 3. Dash App
@@ -305,37 +301,37 @@ def load_patient(n_clicks, path, current_data):
      State('new-patients-store', 'data')],
     prevent_initial_call=True
 )
-def process_new_patient_image(n_clicks, image_path_str, map_path_str, current_data):
-    if n_clicks == 0 or not image_path_str or not map_path_str:
-        return no_update, "Please provide both image and map paths."
+# def process_new_patient_image(n_clicks, image_path_str, map_path_str, current_data):
+#     if n_clicks == 0 or not image_path_str or not map_path_str:
+#         return no_update, "Please provide both image and map paths."
     
-    #try:
-    image_path = Path(image_path_str)
-    map_path = Path(map_path_str)
+#     #try:
+#     image_path = Path(image_path_str)
+#     map_path = Path(map_path_str)
 
-    if not image_path.exists():
-        return no_update, f"Image path does not exist: {image_path}"
-    if not map_path.exists():
-        return no_update, f"Map path does not exist: {map_path}"
+#     if not image_path.exists():
+#         return no_update, f"Image path does not exist: {image_path}"
+#     if not map_path.exists():
+#         return no_update, f"Map path does not exist: {map_path}"
         
-    # Generate Patient ID (e.g. from filename)
-    pt_id = image_path.stem.split('.')[0] # Use stem to get filename without extension
-    output_dir = Path(f"test_patient_{pt_id}")
-    output_dir.mkdir(exist_ok=True)
+#     # Generate Patient ID (e.g. from filename)
+#     pt_id = image_path.stem.split('.')[0] # Use stem to get filename without extension
+#     output_dir = Path(f"test_patient_{pt_id}")
+#     output_dir.mkdir(exist_ok=True)
     
-    # Run Pipeline
-    # Note: This might take a while and block the UI. 
-    # In a real app, use background callbacks.
-    feature_file = process_patient(image_path, map_path, pt_id, output_dir)
+#     # Run Pipeline
+#     # Note: This might take a while and block the UI. 
+#     # In a real app, use background callbacks.
+#     feature_file = process_patient(image_path, map_path, pt_id, output_dir)
     
-    if feature_file:
-            # Simplification: Just return success for now as the pipeline is complex to fully integrate in one go.
-            return current_data, f"Pipeline finished. Features saved to {feature_file}. (Integration pending)"
-    else:
-            return current_data, "Pipeline failed."
+#     if feature_file:
+#             # Simplification: Just return success for now as the pipeline is complex to fully integrate in one go.
+#             return current_data, f"Pipeline finished. Features saved to {feature_file}. (Integration pending)"
+#     else:
+#             return current_data, "Pipeline failed."
 
-    #except Exception as e:
-    #    return current_data, f"Error processing image: {str(e)}"
+#     #except Exception as e:
+#     #    return current_data, f"Error processing image: {str(e)}"
 
 
 # Callback to update graph and dropdowns
@@ -537,8 +533,8 @@ def decode_features(df):
     # We'll try to find any matching file
     for col in df_decoded.columns:
         # Check for nominal or ordinal encoder
-        nominal_path = root_dir / f"{col}_nominal_labelencoder.joblib"
-        ordinal_path = root_dir / f"{col}_ordinal_labelencoder.joblib"
+        nominal_path = root_dir / f"models/{col}_nominal_labelencoder.joblib"
+        ordinal_path = root_dir / f"models/{col}_ordinal_labelencoder.joblib"
         
         encoder_path = None
         if nominal_path.exists():
@@ -666,7 +662,7 @@ def generate_attribute_table(df_full, target_patient, comparison_patients=[]):
         # Assuming path relative to script or fixed path
         # We'll try to find the file in one of the patient directories or a common location
         # For now, let's look in test_patient_001 as a fallback/default
-        ref_path = Path("./test_patient_001/raw/structured_data/blood_data_reference_ranges.json")
+        ref_path = Path("./features/blood_data_reference_ranges.json")
         if ref_path.exists():
             with open(ref_path, 'r') as f:
                 ref_data = json.load(f)

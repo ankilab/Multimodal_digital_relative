@@ -98,10 +98,10 @@ def get_nominal_features(df_original, verbose=0, save=False):
         if save:
             labelencoder = LabelEncoder()
             labelencoder.fit(temp)
-            joblib.dump(labelencoder, f"{feature}_nominal_labelencoder.joblib")
+            joblib.dump(labelencoder, f"models/{feature}_nominal_labelencoder.joblib")
         else:
-            labelencoder = joblib.load(f"{feature}_nominal_labelencoder.joblib")
-        print(labelencoder.classes_)
+            labelencoder = joblib.load(f"models/{feature}_nominal_labelencoder.joblib")
+        #print(labelencoder.classes_)
 
         encoded = labelencoder.transform(temp)
         df[feature] = encoded
@@ -141,9 +141,9 @@ def get_ordinal_features(df_original, verbose=0, save=False):
         if save:
             labelencoder = LabelEncoder()
             labelencoder.fit(df_copy[feature])
-            joblib.dump(labelencoder, f"{feature}_ordinal_labelencoder.joblib")
+            joblib.dump(labelencoder, f"models/{feature}_ordinal_labelencoder.joblib")
         else:
-            labelencoder = joblib.load(f"{feature}_ordinal_labelencoder.joblib")
+            labelencoder = joblib.load(f"models/{feature}_ordinal_labelencoder.joblib")
 
         df[feature] = labelencoder.transform(df_copy[feature])
         if verbose == 1:
@@ -266,11 +266,11 @@ def get_blood_features(file_path_blood, file_path_normal, file_path_clinical, im
             modes_male = get_mode(data, ref, ids_male, verbose)
             modes_female = get_mode(data, ref, ids_female, verbose)
 
-            joblib.dump(modes_female, "modes_female.joblib")
-            joblib.dump(modes_male, "modes_male.joblib")
+            joblib.dump(modes_female, "models/modes_female.joblib")
+            joblib.dump(modes_male, "models/modes_male.joblib")
         else:
-            modes_female = joblib.load("modes_female.joblib")
-            modes_male = joblib.load("modes_male.joblib")
+            modes_female = joblib.load("models/modes_female.joblib")
+            modes_male = joblib.load("models/modes_male.joblib")
 
         data = fill_missing_values(data, modes_female, modes_male, ids_female, ids_male, verbose)
 
