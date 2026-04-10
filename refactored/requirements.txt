@@ -1,0 +1,36 @@
+# HANCOCK Multimodal Patient Analysis System
+# Requirements for patient similarity analysis and visualization
+
+# Core Data Science & Analysis
+pandas==2.2.3
+numpy==2.0.2
+scikit-learn==1.5.1
+scipy>=1.11.0
+
+# Dimensionality Reduction & Embeddings
+umap-learn==0.5.6
+
+# Specialized Analysis
+lifelines==0.30.0
+imbalanced-learn==0.12.3
+shap==0.46.0
+lime==0.2.0.1
+
+# Visualization
+matplotlib==3.9.2
+seaborn==0.13.2
+plotly==5.23.0
+kaleido==0.2.1
+
+# Web Dashboard
+dash==3.3.0
+
+# Deep Learning (Optional - for image analysis)
+tensorflow==2.18.0
+keras==3.6.0
+
+# Utilities
+tabulate==0.9.0
+tqdm==4.66.4
+imageio==2.34.2
+natsort==8.4.0
