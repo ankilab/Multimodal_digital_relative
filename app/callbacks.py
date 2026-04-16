@@ -92,26 +92,37 @@ def register_callbacks(app, df_combined):
 
         if new_patients_data:
             df_new_pts = pd.DataFrame(new_patients_data)
-            # Project new patients with the saved reduction model
-            try:
-                reduction_model = joblib.load(f'models/{method}_model.pkl')
-                X_raw = df_new_pts.drop(
-                    [c for c in ['patient_id', 'dataset', 'Dim 1', 'Dim 2', 'method',
-                                 'UMAP 1', 'UMAP 2']
-                     if c in df_new_pts.columns], axis=1
-                )
-                for col in feature_order:
-                    if col not in X_raw.columns:
-                        X_raw[col] = np.nan
-                X_raw = X_raw[feature_order]
-                X_enc = preprocessor.transform(X_raw)
-                coords = reduction_model.transform(X_enc)
-                df_new_pts['Dim 1'] = coords[:, 0]
-                df_new_pts['Dim 2'] = coords[:, 1]
-            except Exception:
-                # t-SNE has no transform(); fall back to NaN so other data still plots
+
+            if method == 'umap':
+                # patient_encoding already ran umap_model.transform() and stored
+                # Dim 1/Dim 2, so just reuse them directly.
+                pass
+
+            elif method == 'pca':
+                try:
+                    pca_model = joblib.load('models/pca_model.pkl')
+                    # Build feature matrix in the same order as training
+                    meta_cols = ['patient_id', 'dataset', 'Dim 1', 'Dim 2', 'method']
+                    X_raw = df_new_pts.drop(
+                        [c for c in meta_cols if c in df_new_pts.columns], axis=1
+                    )
+                    for col in feature_order:
+                        if col not in X_raw.columns:
+                            X_raw[col] = np.nan
+                    X_raw = X_raw[[c for c in feature_order if c in X_raw.columns]]
+                    X_enc = preprocessor.transform(X_raw)
+                    coords = pca_model.transform(X_enc)
+                    df_new_pts['Dim 1'] = coords[:, 0]
+                    df_new_pts['Dim 2'] = coords[:, 1]
+                except Exception as e:
+                    print(f"PCA transform failed for new patient: {e}")
+                    df_new_pts['Dim 1'] = np.nan
+                    df_new_pts['Dim 2'] = np.nan
+
+            else:  # tsne — no transform() available
                 df_new_pts['Dim 1'] = np.nan
                 df_new_pts['Dim 2'] = np.nan
+
             df_plot = pd.concat([df_base, df_new_pts], ignore_index=True)
         else:
             df_plot = df_base.copy()

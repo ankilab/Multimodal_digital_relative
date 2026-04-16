@@ -134,7 +134,7 @@ def _load_blood_reference_ranges():
     blood_ref_limits = {}
 
     try:
-        ref_path = Path("./features/blood_data_reference_ranges.json")
+        ref_path = Path("./models/blood_data_reference_ranges.json")
         if ref_path.exists():
             with open(ref_path, 'r') as f:
                 ref_data = json.load(f)
