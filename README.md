@@ -56,6 +56,8 @@ multimodal2/
 2. Select patient, adjust visualization
 3. Click on UMAP points to find similar patients
 
+<video controls src="app/tutorial/Screen Recording 2026-04-16 at 10.31.09.mov" title="Title"></video>
+
 **Analysis Notebooks:**
 - Extract training data and patient vectors
 - Compute cosine similarity scores
