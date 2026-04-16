@@ -26,10 +26,23 @@ As a result:
 - Two patients can be **far apart in UMAP space** but still have **high cosine similarity** in the original encoded feature space.
 - The top-5 most similar patients (by cosine) may appear scattered across the UMAP plot.
 
+
+#### Compare other projection methods: UMAP vs PCA vs t-SNE
+
+Close UMAP projection (and t-SNE):
 <div style="display:flex; gap:10px;">
-  <img src="notebooks/images/umap_772.png" width="48%">
-  <img src="notebooks/images/umap_796.png" width="48%">
+  <img src="notebooks/images/umap_001.png" width="30%">
+  <img src="notebooks/images/pca_001.png" width="30%">
+   <img src="notebooks/images/tsne_001.png" width="30%">
 </div>
+
+Spread UMAP projection, same for other projection methods:
+<div style="display:flex; gap:10px;">
+  <img src="notebooks/images/umap_796_.png" width="30%">
+  <img src="notebooks/images/pca_796.png" width="30%">
+   <img src="notebooks/images/tsne_796.png" width="30%">
+</div>
+
 
 ## 3. TMA Features: Include TMA Features vs. NaN in Vector vs. Excluding Entirely
 
