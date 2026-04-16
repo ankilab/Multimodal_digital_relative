@@ -8,11 +8,11 @@ including the control panel, graph, and side panel components.
 from dash import dcc, html
 from pathlib import Path
 
-from data_exploration.umap_embedding import get_umap_embedding
+from data_exploration.umap_embedding import get_embedding
 
-# Load training data and UMAP embeddings
-print("Loading training data and UMAP embeddings...")
-df_train = get_umap_embedding("./features", umap_min_dist=0.1, umap_n_neighbors=15)
+# Load training data and initial UMAP embedding
+print("Loading training data and computing initial UMAP embedding...")
+df_train = get_embedding("./features", method='umap', umap_min_dist=0.1, umap_n_neighbors=15)
 df_train['dataset'] = 'Training'
 
 
@@ -37,7 +37,7 @@ def create_app_layout(df_combined=None):
     hue_options = [
         'dataset'
     ] + [col for col in df_combined.columns
-         if col not in ['patient_id', 'UMAP 1', 'UMAP 2', 'dataset']]
+         if col not in ['patient_id', 'Dim 1', 'Dim 2', 'method', 'dataset']]
 
     return html.Div([
         html.H1(
@@ -45,12 +45,27 @@ def create_app_layout(df_combined=None):
             style={'textAlign': 'center'}
         ),
         html.H3(
-            "UMAP Visualization Dashboard for HANCOCK",
+            "Embedding Visualization Dashboard for HANCOCK",
             style={'textAlign': 'center'}
         ),
 
         # Control Panel Section
         html.Div([
+            # Projection Method Dropdown
+            html.Div([
+                html.Label("Projection Method:"),
+                dcc.Dropdown(
+                    id='method-dropdown',
+                    options=[
+                        {'label': 'UMAP', 'value': 'umap'},
+                        {'label': 'PCA',  'value': 'pca'},
+                        {'label': 't-SNE', 'value': 'tsne'},
+                    ],
+                    value='umap',
+                    clearable=False
+                )
+            ], className='control-item', style={'flex': '1', 'marginBottom': '20px'}),
+
             # Color By Dropdown
             html.Div([
                 html.Label("Color by:"),

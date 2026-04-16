@@ -6,6 +6,8 @@ from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, OneHotEncoder
 from sklearn.impute import SimpleImputer
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
 from umap import UMAP
 from pathlib import Path
 import pandas as pd
@@ -162,6 +164,83 @@ def get_umap_embedding(features_directory, umap_min_dist=0.1, umap_n_neighbors=1
     # print("np.allclose(umap.transform(a), umap.transform(b))", np.allclose(umap_model_loaded.transform(embeddings[0]), umap_model_loaded.transform(b_embeddings_loaded)))  
 
 
+    return df
+
+
+def get_embedding(features_directory, method='umap', umap_min_dist=0.1, umap_n_neighbors=15,
+                  pca_n_components=2, tsne_perplexity=30):
+    """
+    Loads multimodal features, preprocesses them and applies a dimensionality
+    reduction method (UMAP, PCA, or t-SNE) to produce a 2-D embedding.
+
+    Parameters
+    ----------
+    features_directory : str
+        Directory that contains the extracted features (.csv)
+    method : str
+        Reduction method: 'umap', 'pca', or 'tsne'. Default: 'umap'
+    umap_min_dist : float
+        min_dist parameter for UMAP. Default: 0.1
+    umap_n_neighbors : int
+        n_neighbors parameter for UMAP. Default: 15
+    pca_n_components : int
+        Number of PCA components (first two are used for 2-D plot). Default: 2
+    tsne_perplexity : float
+        Perplexity for t-SNE. Default: 30
+
+    Returns
+    -------
+    pd.DataFrame
+        Dataframe containing the features and the 2-D embedding in
+        "Dim 1" and "Dim 2" columns, plus a "method" column.
+    """
+    method = method.lower()
+    fdir = Path(features_directory)
+
+    # ---- Load and merge modalities (identical to get_umap_embedding) ----
+    clinical = pd.read_csv(fdir / "clinical.csv", dtype={"patient_id": str})
+    patho = pd.read_csv(fdir / "pathological.csv", dtype={"patient_id": str})
+    blood = pd.read_csv(fdir / "blood.csv", dtype={"patient_id": str})
+    icd = pd.read_csv(fdir / "icd_codes.csv", dtype={"patient_id": str})
+    cell_density = pd.read_csv(fdir / "tma_cell_density.csv", dtype={"patient_id": str})
+    targets = pd.read_csv(fdir / "targets.csv", dtype={"patient_id": str})
+
+    df = clinical.merge(patho, on="patient_id", how="inner")
+    df = df.merge(blood, on="patient_id", how="inner")
+    df = df.merge(icd, on="patient_id", how="inner")
+    df = df.merge(cell_density, on="patient_id", how="inner")
+    df = df.merge(targets, on="patient_id", how="inner")
+    df = df.reset_index(drop=True)
+
+    target_cols = [c for c in targets.columns if c != "patient_id"]
+    df_for_embedding = df.drop(["patient_id"] + target_cols, axis=1)
+
+    # ---- Preprocess (identical to get_umap_embedding) ----
+    preprocessor = setup_preprocessing_pipeline(df_for_embedding.columns)
+    preprocessor = preprocessor.fit(df_for_embedding)
+    joblib.dump(preprocessor, fdir / "../models/preprocessor.pkl")
+    embeddings = preprocessor.transform(df_for_embedding)
+
+    # ---- Fit reduction model ----
+    if method == 'umap':
+        model = UMAP(random_state=SEED, min_dist=umap_min_dist, n_neighbors=umap_n_neighbors)
+        model.fit(embeddings)
+        coords = model.transform(embeddings)
+        joblib.dump(model, fdir / "../models/umap_model.pkl")
+    elif method == 'pca':
+        model = PCA(n_components=pca_n_components, random_state=SEED)
+        coords = model.fit_transform(embeddings)
+        joblib.dump(model, fdir / "../models/pca_model.pkl")
+    elif method == 'tsne':
+        model = TSNE(n_components=2, perplexity=tsne_perplexity, random_state=SEED)
+        coords = model.fit_transform(embeddings)
+        joblib.dump(model, fdir / "../models/tsne_model.pkl")
+    else:
+        raise ValueError(f"Unknown method '{method}'. Choose 'umap', 'pca', or 'tsne'.")
+
+    df["Dim 1"] = coords[:, 0]
+    df["Dim 2"] = coords[:, 1]
+    df["method"] = method
     return df
 
 

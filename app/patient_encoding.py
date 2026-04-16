@@ -119,11 +119,12 @@ def load_and_encode_patient(base_path_str, patient_id="Unknown"):
     embeddings = preprocessor.transform(df_for_umap)
     umap_embedding = umap_model.transform(embeddings)
 
-    # Add UMAP coordinates to dataframe
+    # Add embedding coordinates to dataframe
     df_new = df.copy()
     df_new['patient_id'] = f"New_{patient_id}"
-    df_new["UMAP 1"] = umap_embedding[:, 0]
-    df_new["UMAP 2"] = umap_embedding[:, 1]
+    df_new["Dim 1"] = umap_embedding[:, 0]
+    df_new["Dim 2"] = umap_embedding[:, 1]
+    df_new['method'] = 'umap'
     df_new['dataset'] = 'New Patient'
 
     return df_new

@@ -16,6 +16,7 @@ from dash import Output, Input, State, callback_context, no_update
 
 from .patient_encoding import load_and_encode_patient
 from .utils import generate_attribute_table, decode_features
+from data_exploration.umap_embedding import get_embedding
 
 # Load models and metadata
 preprocessor = joblib.load('models/preprocessor.pkl')
@@ -76,18 +77,44 @@ def register_callbacks(app, df_combined):
         [Input('hue-dropdown', 'value'),
          Input('patient-dropdown', 'value'),
          Input('new-patients-store', 'data'),
-         Input('similar-patients-store', 'data')]
+         Input('similar-patients-store', 'data'),
+         Input('method-dropdown', 'value')]
     )
-    def update_graph(hue, highlight_patient, new_patients_data, similar_patients_ids):
-        """Update UMAP graph based on user selections."""
+    def update_graph(hue, highlight_patient, new_patients_data, similar_patients_ids, method):
+        """Update embedding graph based on user selections."""
         import plotly.graph_objects as go
         import plotly.express as px
 
+        # Re-embed training data with the chosen method and merge new patients
+        df_base = get_embedding("./features", method=method,
+                                umap_min_dist=0.1, umap_n_neighbors=15)
+        df_base['dataset'] = 'Training'
+
         if new_patients_data:
             df_new_pts = pd.DataFrame(new_patients_data)
-            df_plot = pd.concat([df_combined, df_new_pts], ignore_index=True)
+            # Project new patients with the saved reduction model
+            try:
+                reduction_model = joblib.load(f'models/{method}_model.pkl')
+                X_raw = df_new_pts.drop(
+                    [c for c in ['patient_id', 'dataset', 'Dim 1', 'Dim 2', 'method',
+                                 'UMAP 1', 'UMAP 2']
+                     if c in df_new_pts.columns], axis=1
+                )
+                for col in feature_order:
+                    if col not in X_raw.columns:
+                        X_raw[col] = np.nan
+                X_raw = X_raw[feature_order]
+                X_enc = preprocessor.transform(X_raw)
+                coords = reduction_model.transform(X_enc)
+                df_new_pts['Dim 1'] = coords[:, 0]
+                df_new_pts['Dim 2'] = coords[:, 1]
+            except Exception:
+                # t-SNE has no transform(); fall back to NaN so other data still plots
+                df_new_pts['Dim 1'] = np.nan
+                df_new_pts['Dim 2'] = np.nan
+            df_plot = pd.concat([df_base, df_new_pts], ignore_index=True)
         else:
-            df_plot = df_combined.copy()
+            df_plot = df_base.copy()
 
         df_plot = decode_features(df_plot)
         patient_options = [
@@ -95,10 +122,14 @@ def register_callbacks(app, df_combined):
             for p in ['None'] + sorted(df_plot['patient_id'].unique())
         ]
 
+        method_label = {'umap': 'UMAP', 'pca': 'PCA', 'tsne': 't-SNE'}.get(
+            method, method.upper()
+        )
+
         fig = px.scatter(
             df_plot,
-            x='UMAP 1',
-            y='UMAP 2',
+            x='Dim 1',
+            y='Dim 2',
             color=hue,
             hover_data=['patient_id'],
             color_discrete_sequence=px.colors.qualitative.Bold
@@ -110,8 +141,8 @@ def register_callbacks(app, df_combined):
             if not sim_data.empty:
                 fig.add_trace(
                     go.Scatter(
-                        x=sim_data['UMAP 1'],
-                        y=sim_data['UMAP 2'],
+                        x=sim_data['Dim 1'],
+                        y=sim_data['Dim 2'],
                         mode='markers',
                         marker=dict(
                             size=12,
@@ -129,8 +160,8 @@ def register_callbacks(app, df_combined):
             if not pt_data.empty:
                 fig.add_trace(
                     go.Scatter(
-                        x=pt_data['UMAP 1'],
-                        y=pt_data['UMAP 2'],
+                        x=pt_data['Dim 1'],
+                        y=pt_data['Dim 2'],
                         mode='markers',
                         marker=dict(
                             size=15,
@@ -143,8 +174,8 @@ def register_callbacks(app, df_combined):
                     )
                 )
 
-        x_min, x_max = df_plot['UMAP 1'].min(), df_plot['UMAP 1'].max()
-        y_min, y_max = df_plot['UMAP 2'].min(), df_plot['UMAP 2'].max()
+        x_min, x_max = df_plot['Dim 1'].min(), df_plot['Dim 1'].max()
+        y_min, y_max = df_plot['Dim 2'].min(), df_plot['Dim 2'].max()
         padding_x = (x_max - x_min) * 0.05
         padding_y = (y_max - y_min) * 0.05
 
@@ -159,6 +190,7 @@ def register_callbacks(app, df_combined):
                 fixedrange=True,
                 constrain='domain',
                 showticklabels=False,
+                title=f"{method_label} 1",
                 range=[x_min - padding_x, x_max + padding_x],
                 showline=True,
                 linewidth=1,
@@ -171,6 +203,7 @@ def register_callbacks(app, df_combined):
                 fixedrange=True,
                 constrain='domain',
                 showticklabels=False,
+                title=f"{method_label} 2",
                 range=[y_min - padding_y, y_max + padding_y],
                 showline=True,
                 linewidth=1,
