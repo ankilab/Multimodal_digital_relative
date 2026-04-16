@@ -4,6 +4,8 @@ __pycache__/
 *$py.class
 test_patients
 *.DS_Store
+models
+data
 
 # C extensions
 *.so

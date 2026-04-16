@@ -1,9 +1,11 @@
 import os
 import re
+from pathlib import Path
 import pandas as pd
 from sklearn.feature_extraction.text import CountVectorizer
 import joblib
 
+root_path = Path(__file__).parent
 
 def get_icd_vectors(icd_directory, save=False):
     """
@@ -24,7 +26,7 @@ def get_icd_vectors(icd_directory, save=False):
     files = os.listdir(icd_directory)
     codes = []
     ids = []
-
+    print(files)
     for file in files:
         file_path = os.path.join(icd_directory, file)
         with open(file_path, "r", encoding="utf-8") as text:
@@ -49,13 +51,13 @@ def get_icd_vectors(icd_directory, save=False):
     #print(len(ids))
     #print(len(codes))
     df = pd.DataFrame({"patient_id": pd.Series(ids, dtype=str), "icd_code": pd.Series(codes, dtype=str)})
-    #print(df)
+    print(df)
     if save:
         cv = CountVectorizer(ngram_range=(1, 1), min_df=3)
         cv = cv.fit(df.icd_code)
-        joblib.dump(cv, "models/icd_vectorizer.joblib")
+        joblib.dump(cv, root_path.parent / "models/icd_vectorizer.joblib")
     else:
-        cv = joblib.load("models/icd_vectorizer.joblib")
+        cv = joblib.load(root_path.parent / "models/icd_vectorizer.joblib")
 
     bow = cv.transform(df.icd_code)
 

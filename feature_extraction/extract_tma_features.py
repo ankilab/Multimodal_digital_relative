@@ -6,6 +6,7 @@ TMA_FEATURES = ["cd3_z", "cd3_inv", "cd8_z", "cd8_inv"]
 
 def get_tma_features(tma_measurement_file):
     df = pd.read_csv(tma_measurement_file, dtype={"Case ID": str})
+    print(df)
     
     # drop missing cores
     missing_idx = df[df["Missing"] == True].index
@@ -17,8 +18,8 @@ def get_tma_features(tma_measurement_file):
     df = df.drop(nan_idx)
 
     # Extract location from filename
-    df["location"] = df["Image"].str.extract(r"(TumorCenter|InvasionFront)")
-    df["marker"] = df["Image"].str.extract(r"(CD3|CD8)")
+    df["location"] = df["Image"].fillna("").str.extract(r"(TumorCenter|InvasionFront)")
+    df["marker"] = df["Image"].fillna("").str.extract(r"(CD3|CD8)")
 
     cd3 = df[df.marker == "CD3"]
     cd8 = df[df.marker == "CD8"]
@@ -49,5 +50,14 @@ def get_tma_features(tma_measurement_file):
     cd3_cd8 = cd3_cd8.sort_values(by="Case ID").rename(columns={"Case ID": "patient_id"})
 
     features = cd3_cd8[cd3_cd8.columns[1:]].to_numpy()
+    
+    print("features:", features)
+    if features.shape[0] == 0:
+        print("features:", features)
+        features = pd.DataFrame(columns=["patient_id"] + TMA_FEATURES)
+        features["patient_id"] = df["Case ID"]
+        print("features:", features)
+        cd3_cd8=features
+        features=features.to_numpy()
 
     return features, cd3_cd8

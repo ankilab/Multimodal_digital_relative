@@ -4,7 +4,10 @@ from sklearn.preprocessing import LabelEncoder
 import matplotlib.pyplot as plt
 import seaborn as sns
 import joblib
+from pathlib import Path
 
+
+root_path = Path(__file__).parent
 
 BINARY_FEATURES = [
     "primarily_metastasis",
@@ -98,10 +101,10 @@ def get_nominal_features(df_original, verbose=0, save=False):
         if save:
             labelencoder = LabelEncoder()
             labelencoder.fit(temp)
-            joblib.dump(labelencoder, f"models/{feature}_nominal_labelencoder.joblib")
+            joblib.dump(labelencoder, root_path.parent / f"models/{feature}_nominal_labelencoder.joblib")
         else:
-            labelencoder = joblib.load(f"models/{feature}_nominal_labelencoder.joblib")
-        #print(labelencoder.classes_)
+            labelencoder = joblib.load(root_path.parent / f"models/{feature}_nominal_labelencoder.joblib")
+        print(labelencoder.classes_)
 
         encoded = labelencoder.transform(temp)
         df[feature] = encoded
@@ -141,10 +144,10 @@ def get_ordinal_features(df_original, verbose=0, save=False):
         if save:
             labelencoder = LabelEncoder()
             labelencoder.fit(df_copy[feature])
-            joblib.dump(labelencoder, f"models/{feature}_ordinal_labelencoder.joblib")
+            joblib.dump(labelencoder, root_path.parent / f"models/{feature}_ordinal_labelencoder.joblib")
         else:
-            labelencoder = joblib.load(f"models/{feature}_ordinal_labelencoder.joblib")
-
+            labelencoder = joblib.load(root_path.parent / f"models/{feature}_ordinal_labelencoder.joblib")
+        print(labelencoder.classes_)
         df[feature] = labelencoder.transform(df_copy[feature])
         if verbose == 1:
             print(feature, list(labelencoder.classes_))
@@ -153,12 +156,16 @@ def get_ordinal_features(df_original, verbose=0, save=False):
 
 def get_tabular_features(file_path, verbose=0, save=False):
     df = pd.read_json(file_path, dtype={"patient_id": str})
+    df = df.astype(object)
+    df = df.where(pd.notna(df), None)
+    print(df)
     df_binary = get_binary_features(df, verbose)
     df_nominal = get_nominal_features(df, verbose, save)
     df_discrete = get_discrete_features(df, verbose)
     df_ordinal = get_ordinal_features(df, verbose, save)
 
     features_df = pd.concat([df_binary, df_nominal, df_discrete, df_ordinal], axis=1)
+    print(features_df)
     features = features_df.to_numpy()
     features_df.insert(0, "patient_id", df["patient_id"])
     return features, features_df
@@ -266,11 +273,11 @@ def get_blood_features(file_path_blood, file_path_normal, file_path_clinical, im
             modes_male = get_mode(data, ref, ids_male, verbose)
             modes_female = get_mode(data, ref, ids_female, verbose)
 
-            joblib.dump(modes_female, "models/modes_female.joblib")
-            joblib.dump(modes_male, "models/modes_male.joblib")
+            joblib.dump(modes_female, root_path.parent / "models/modes_female.joblib")
+            joblib.dump(modes_male, root_path.parent / "models/modes_male.joblib")
         else:
-            modes_female = joblib.load("models/modes_female.joblib")
-            modes_male = joblib.load("models/modes_male.joblib")
+            modes_female = joblib.load(root_path.parent / "models/modes_female.joblib")
+            modes_male = joblib.load(root_path.parent / "models/modes_male.joblib")
 
         data = fill_missing_values(data, modes_female, modes_male, ids_female, ids_male, verbose)
 

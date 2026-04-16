@@ -109,14 +109,14 @@ def get_umap_embedding(features_directory, umap_min_dist=0.1, umap_n_neighbors=1
     preprocessor = setup_preprocessing_pipeline(df_for_umap.columns)
     preprocessor = preprocessor.fit(df_for_umap)
     # Save preprocessor
-    joblib.dump(preprocessor, "models/preprocessor.pkl")
+    joblib.dump(preprocessor, fdir/"../models/preprocessor.pkl")
 
     embeddings = preprocessor.transform(df_for_umap)
 
     # Reduce to 2D
     umap_model = UMAP(random_state=SEED, min_dist=umap_min_dist, n_neighbors=umap_n_neighbors)
     umap_model.fit(embeddings)
-    joblib.dump(umap_model, "models/umap_model.pkl")
+    joblib.dump(umap_model, fdir/"../models/umap_model.pkl")
     umap = umap_model.transform(embeddings)
     #umap = np.array([umap_model.transform([embeddings[i]])[0] for i in range(embeddings.shape[0])])
 

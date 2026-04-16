@@ -3,9 +3,14 @@ import os
 import re
 from pathlib import Path
 import numpy as np
+import pandas as pd
 from tqdm import tqdm
 import warnings
-import deeptexture
+try:
+    import deeptexture
+except ImportError:
+    deeptexture = None
+    print("Warning: deeptexture module not found. Image feature extraction will fail.")
 
 
 def extract_image_features(tile_dir, backbone, layer, dim, num_tiles_per_patient=2):
@@ -71,33 +76,73 @@ def extract_image_features(tile_dir, backbone, layer, dim, num_tiles_per_patient
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("qupath_projects_root_directory", type=str, help="Path to directory containing QuPath projects")
-    parser.add_argument("dest_directory", type=str, help="Path to directory where the features are saved")
-    parser.add_argument("--dim", type=int, help="Feature dimension", default=256, nargs="?")
+    # Batch mode arguments (optional)
+    parser.add_argument("--root_dir", type=str, help="Path to directory containing QuPath projects (Batch Mode)")
+    parser.add_argument("--dest_dir", type=str, help="Path to directory where the features are saved (Batch Mode)")
+    
+    # Single patient mode arguments
+    parser.add_argument("--tiles_dir", type=str, help="Path to tiles directory (Single Patient Mode)")
+    parser.add_argument("--output_path", type=str, help="Path to output .npz file (Single Patient Mode)")
+    
+    parser.add_argument("--dim", type=int, help="Feature dimension", default=256)
+    parser.add_argument("--backbone", type=str, default="vgg", help="Backbone architecture")
+    parser.add_argument("--layer", type=str, default="block3_conv3", help="Layer name")
+    
     args = parser.parse_args()
 
-    root_dir = Path(args.qupath_projects_root_directory)
-
-    # Loop through QuPath projects in the specified root directory
-    for sub_dir in os.listdir(root_dir):
-        # Only continue if the QuPath project directory already contains the "tiles" directory
-        if "tiles" in os.listdir(root_dir/sub_dir):
-            marker = re.search(r"(CD[0-9]+|MHC1|PDL1|HE)", sub_dir)
-            # The QuPath project name needs to contain one of the markers CD3, CD8, ..., PDL1, MHC1, HE
-            if marker is not None:
-                marker = marker.group()
-
-                # logging
-                print(f"\n\nFolder: {sub_dir}")
-                print(f"Marker: {marker}")
-                print(f"Feature dimension: {args.dim}")
-
-                tile_dir = root_dir/sub_dir/"tiles"
-                savez_dict = extract_image_features(tile_dir, backbone="vgg", layer="block3_conv3", dim=args.dim)
-                filename = Path(args.dest_directory)/f"tma_tile_dtr_{args.dim}_{marker}.npz"
-                np.savez_compressed(filename, **savez_dict)
-                print("Done.\n\n")
-            else:
-                warnings.warn(f"Warning: Found a folder without the marker specified in the folder name: {sub_dir}. Possible markers: CD3, CD8, ..., PDL1, MHC1")
+    if args.tiles_dir and args.output_path:
+        # Single Patient Mode
+        print(f"Running in Single Patient Mode")
+        print(f"Tiles Directory: {args.tiles_dir}")
+        print(f"Output Path: {args.output_path}")
+        
+        savez_dict = extract_image_features(Path(args.tiles_dir), backbone=args.backbone, layer=args.layer, dim=args.dim)
+        
+        if args.output_path.endswith('.csv'):
+            # Convert to DataFrame and save as CSV
+            # Keys are Patient IDs, Values are feature arrays
+            data = []
+            for pid, features in savez_dict.items():
+                row = {'Patient_ID': pid}
+                for i, val in enumerate(features):
+                    row[f'DTR_{i}'] = val
+                data.append(row)
+            
+            df = pd.DataFrame(data)
+            df.to_csv(args.output_path, index=False)
         else:
-            warnings.warn(f"Warning: Folder {sub_dir} does not contain a 'tiles' folder")
+            np.savez_compressed(args.output_path, **savez_dict)
+            
+        print(f"Features saved to {args.output_path}")
+
+    elif args.root_dir and args.dest_dir:
+        # Batch Mode
+        root_dir = Path(args.root_dir)
+        dest_dir = Path(args.dest_dir)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+
+        # Loop through QuPath projects in the specified root directory
+        for sub_dir in os.listdir(root_dir):
+            # Only continue if the QuPath project directory already contains the "tiles" directory
+            if "tiles" in os.listdir(root_dir/sub_dir):
+                marker = re.search(r"(CD[0-9]+|MHC1|PDL1|HE)", sub_dir)
+                # The QuPath project name needs to contain one of the markers CD3, CD8, ..., PDL1, MHC1, HE
+                if marker is not None:
+                    marker = marker.group()
+
+                    # logging
+                    print(f"\n\nFolder: {sub_dir}")
+                    print(f"Marker: {marker}")
+                    print(f"Feature dimension: {args.dim}")
+
+                    tile_dir = root_dir/sub_dir/"tiles"
+                    savez_dict = extract_image_features(tile_dir, backbone=args.backbone, layer=args.layer, dim=args.dim)
+                    filename = dest_dir/f"tma_tile_dtr_{args.dim}_{marker}.npz"
+                    np.savez_compressed(filename, **savez_dict)
+                    print("Done.\n\n")
+                else:
+                    warnings.warn(f"Warning: Found a folder without the marker specified in the folder name: {sub_dir}. Possible markers: CD3, CD8, ..., PDL1, MHC1")
+            else:
+                warnings.warn(f"Warning: Folder {sub_dir} does not contain a 'tiles' folder")
+    else:
+        print("Error: Please provide either (--tiles_dir and --output_path) for single mode OR (--root_dir and --dest_dir) for batch mode.")
