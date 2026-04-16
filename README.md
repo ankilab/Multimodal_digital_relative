@@ -56,7 +56,9 @@ multimodal2/
 2. Select patient, adjust visualization
 3. Click on UMAP points to find similar patients
 
-<video controls src="app/tutorial/tutorial.mp4" title="Tutorial"></video>
+
+https://github.com/user-attachments/assets/50395266-9943-4a55-97a3-589601e75fe6
+
 
 **Analysis Notebooks:**
 - Extract training data and patient vectors
