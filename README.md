@@ -1,8 +1,7 @@
 # HANCOCK Multimodal Patient Analysis System
 
 Patient similarity analysis using multimodal features: clinical, pathological, blood, ICD codes, and TMA data.
-
-builds up on hancock repo 
+Based on the [HANCOCK m
 
 ## Quick Start
 
@@ -70,11 +69,11 @@ https://github.com/user-attachments/assets/50395266-9943-4a55-97a3-589601e75fe6
 ## Data
 
 Data Sources:
-- Data is retrieved from Medona
+- New data is retrieved from EHR systems (e.g. MEONA)
 - Each feature definition (including allowed values) can be found in the corresponding documentation
 
 Data Extraction:
-- Extract patient-level data from Medona
+- Extract patient-level data from EHRs
 - Store extracted data in a temporary Excel template
 
 Data Formatting:
