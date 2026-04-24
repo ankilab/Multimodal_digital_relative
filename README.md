@@ -8,7 +8,7 @@ Based on the [HANCOCK repository](https://github.com/ankilab/HANCOCK_MultimodalD
 
 ```bash
 # Create environment
-conda create --name hancock_multimodal 
+conda create --name hancock_multimodal python=3.12
 conda activate hancock_multimodal
 pip install -r requirements.txt
 
