@@ -1,7 +1,8 @@
 # HANCOCK Multimodal Patient Analysis System
 
 Patient similarity analysis using multimodal features: clinical, pathological, blood, ICD codes, and TMA data.
-Based on the [HANCOCK m
+
+Based on the [HANCOCK repository](https://github.com/ankilab/HANCOCK_MultimodalDataset).
 
 ## Quick Start
 
